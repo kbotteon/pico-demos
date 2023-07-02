@@ -18,13 +18,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-# No `dataclasses` in MicroPython
+# No `dataclasses`, `typing`, or `enum` in MicroPython
 # from dataclasses import dataclass
-
-# No `typing` in MicroPython
 # from typing import List
-
-# No `enum` in MicroPython
 # from enum import Enum
 
 from machine import Pin as Gpio

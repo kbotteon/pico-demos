@@ -1,10 +1,20 @@
 # Experimenting with the Pi Pico
 
-## gpioCtl
+## GPIO Control
+
+|||
+|-:|:-|
+| Implemented In | `gpioCtl.py`
+| Example In |
 
 This is a utility that allows setting or clearing of all GPIO on the board. This is useful, for example, when you want to depower peripherals but not the Pico. You wouldn't want to drive unpowered peripheral IO, so run `gpioCtl.setAll(0)` or `gpioCtl.outDrive(0)` prior to doing so.
 
-## hd44780
+## LCD Control
+
+|||
+|-:|:-|
+| Implemented In | `hd44780.py`
+| Example In | `demo.py`
 
 This implements both the 4-bit and 8-bit interfaces, with and without R/Wn, to the HD44780 LCD
 driver IC commonly used in small dot matrix displays, like those included with certain hobbyist
@@ -14,7 +24,7 @@ prototyping kits.
   <img src="doc/example.gif" width="400"/>
 </p>
 
-### Build Status
+### Status
 
 Both 4- and 8-bit modes have been tested with `R/W'` connected (`RWn_CONNECTED = True`) as well as `R/W'` tied to ground (`RWn_CONNECTED = False`). This covers all 4 possible configurations.
 
@@ -31,13 +41,16 @@ Optionally, you may connect the `R/W'` pin and set `RWn_CONNECTED` to `True` to 
 
 ### Usage
 
-See `Program Entry` section for an example. In some cases, you will interact directly with the LCD by issuing commands like `DISPLAY_ON` or `DISPLAY_CLEAR`, but in others you may use a more abstract method like `putLine`, which effectively issues a number of character write commands.
+See `demo.py` for an example. In summary, from the `src` directory and with `mpremote` installed, you can:
 
-Decorative printing is also included by setting the `effect` bit in `putLine()` or pushing text to the display using `pushLine`, which creates a scrolling effect as lines are added
+```
+mpremote fs cp hd44780.py :/
+mpremote run demo.py
+```
 
-## HowTo
+## Background
 
-### Work with the remote Pico filesystem
+### Working with the Remote Pico Filesystem
 
 Scripts with no arguments can be executed with
 ```
