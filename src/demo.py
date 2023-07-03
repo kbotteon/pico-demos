@@ -18,7 +18,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from hd44780 import hardware_interface as hd44780
+from hd44780 import HardwareInterface as hd44780
 
 def main():
 
@@ -36,7 +36,7 @@ def main():
     # Turn on the display and bring cursor home to start writing
     lcd.start()
 
-    Lines = [
+    lines = [
         "Monday",
         "Tuesday",
         "Wednesday",
@@ -46,8 +46,8 @@ def main():
         "Sunday"
     ]
 
-    for text in Lines:
-        lcd.pushLine(text, True)
+    for text in lines:
+        lcd.push_line(text, True)
 
     lcd.clear()
 

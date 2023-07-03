@@ -18,20 +18,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-# No `dataclasses`, `typing`, or `enum` in MicroPython
-# from dataclasses import dataclass
-# from typing import List
-# from enum import Enum
-
 from machine import Pin as Gpio
 from utime import sleep_us, sleep_ms
+from collections import namedtuple
+# No `dataclasses`, `typing`, or `enum` in MicroPython
 
-class hardware_interface:
+class HardwareInterface:
     """
     Hardware wrapper object for HD44780
     """
 
-    class DRAM_RANGE:
+    class DramRange:
         """
         The address space that display character array exists within
         Configured for a 2x16 display; see datasheet if that's not what you have
@@ -69,21 +66,22 @@ class hardware_interface:
     # LCD opcodes and execution times
     # See datasheet p. 24
     # key: opcode, duration [us]
+    cmd_pair = namedtuple('cmd_pair', 'opcode duration')
     COMMANDS = {
         # Not a command, but a default wait time when needed
-        'DEFAULT': [0x00, 37],
-        'DISPLAY_ON': [0x0E, 37],
-        'DISPLAY_OFF': [0x08, 37],
+        'DEFAULT': cmd_pair(0x00, 37),
+        'DISPLAY_ON': cmd_pair(0x0E, 37),
+        'DISPLAY_OFF': cmd_pair(0x08, 37),
         # Duration for this one isn't actually specified, so assume a similar
         # duration to Return Home because they're similar operations
-        'DISPLAY_CLEAR': [0x01, 1500],
-        'CURSOR_HOME': [0x02, 1520],
-        'MODE_AUTOINC': [0x06, 4],
+        'DISPLAY_CLEAR': cmd_pair(0x01, 1500),
+        'CURSOR_HOME': cmd_pair(0x02, 1520),
+        'MODE_AUTOINC': cmd_pair(0x06, 4),
         # 8-bit mode, 2 lines, 5x8 display
-        'FUNCSEL_8BIT': [0x38, 37],
+        'FUNCSEL_8BIT': cmd_pair(0x38, 37),
         # 4-bit mode, 2 lines, 5x8 display
-        'FUNCSEL_4BIT': [0x28, 37],
-        'DDRAM_SET': [0x80, 37]
+        'FUNCSEL_4BIT': cmd_pair(0x28, 37),
+        'DDRAM_SET': cmd_pair(0x80, 37)
     }
 
     def __init__(self, pinout: Pinout):
@@ -98,30 +96,30 @@ class hardware_interface:
 
         # This is shared among functions to determine whether a GPIO direction swap
         # should be performed; that takes time, so avoid when possible
-        self.outputEnabled = False
+        self.output_enabled = False
 
         # Local storage for whatever is presently on screen
         # Start with 16 blank spaces, and pad it so indices [1] and [2] line up with the
         # physical line numbers
-        self.lineVal = [ "", " "*16, " "*16 ]
+        self.line_val = [ "", " "*16, " "*16 ]
 
         # This will soon be populated with hardware control objects
-        self.hwPin = self.Pinout()
+        self.hw_pin = self.Pinout()
 
         # Configure data pins
         if self.pinout.RWn == None:
-            self.hwPin.D = [Gpio(pinIdx, Gpio.OUT, value=0) for pinIdx in self.pinout.D]
-            outputEnabled = True
+            self.hw_pin.D = [Gpio(pin_idx, Gpio.OUT, value=0) for pin_idx in self.pinout.D]
+            self.output_enabled = True
         else:
-            self.hwPin.D = [Gpio(pinIdx, Gpio.IN, value=0) for pinIdx in self.pinout.D]
-            self.hwPin.RWn = Gpio(self.pinout.RWn, Gpio.OUT, value=1)
-            outputEnabled = False
+            self.hw_pin.D = [Gpio(pin_idx, Gpio.IN, value=0) for pin_idx in self.pinout.D]
+            self.hw_pin.RWn = Gpio(self.pinout.RWn, Gpio.OUT, value=1)
+            self.output_enabled = False
 
         # Configure enable pin
-        self.hwPin.E = Gpio(self.pinout.E, Gpio.OUT, value=1)
+        self.hw_pin.E = Gpio(self.pinout.E, Gpio.OUT, value=1)
 
         # Configure
-        self.hwPin.RS = Gpio(self.pinout.RS, Gpio.OUT, value=1)
+        self.hw_pin.RS = Gpio(self.pinout.RS, Gpio.OUT, value=1)
 
     def reset(self):
         """
@@ -137,22 +135,22 @@ class hardware_interface:
             9. Write 0x07 (I/D = 1, S = 1)
         """
 
-        if len(self.hwPin.D) == 8:
+        if len(self.hw_pin.D) == 8:
             self.write(0x30, True, 4100)
             self.write(0x30, True, 100)
             self.write(0x30, True, 100)
             # This can only be set during reset sequence or immediately after power on
-            self.doCmd('FUNCSEL_8BIT')
+            self.do_cmd('FUNCSEL_8BIT')
             self.mode = self.Mode.DATA_8
 
-        elif len(self.hwPin.D) == 4:
+        elif len(self.hw_pin.D) == 4:
             # Borrow 8-bit mode in send() to do the unique 4-bit reset sequence; see p. 46
             self.write(0x3, True, 4100)
             self.write(0x3, True, 100)
             self.write(0x2, True, 100)
             self.write(0x2, True, 100)
             # This can only be set during reset sequence or immediately after power on
-            self.doCmd('FUNCSEL_4BIT')
+            self.do_cmd('FUNCSEL_4BIT')
             # Now we're in 4-bit mode; say tell send() it should use that mode
             self.mode = self.Mode.DATA_4
 
@@ -160,43 +158,43 @@ class hardware_interface:
             raise Exception("Generate PinCtl with a valid number of control pins: 4 or 8")
 
         # These default settings can be changed later
-        self.doCmd('DISPLAY_OFF')
-        self.doCmd('DISPLAY_CLEAR')
-        self.doCmd('MODE_AUTOINC')
+        self.do_cmd('DISPLAY_OFF')
+        self.do_cmd('DISPLAY_CLEAR')
+        self.do_cmd('MODE_AUTOINC')
 
     def start(self):
-        self.doCmd('DISPLAY_ON')
-        self.doCmd('CURSOR_HOME')
+        self.do_cmd('DISPLAY_ON')
+        self.do_cmd('CURSOR_HOME')
 
     def clear(self):
-        self.doCmd('DISPLAY_CLEAR')
+        self.do_cmd('DISPLAY_CLEAR')
 
-    def enGpioOut(self, enable):
+    def en_gpio_out(self, enable):
         """
         Direction swapping for bidirectional bus
         """
         if(enable):
-            self.outputEnabled = True
+            self.output_enabled = True
             # Ensure the bus won't be driven in contention, if we control it
-            if self.hwPin.RWn != None:
-                self.hwPin.RWn.low() # LCD write mode expects Pico to drive bus
+            if self.hw_pin.RWn != None:
+                self.hw_pin.RWn.low() # LCD write mode expects Pico to drive bus
             # Reconfigure the data GPIO as outputs
-            self.hwPin.D = [Gpio(pinIdx, Gpio.OUT, value=0) for pinIdx in self.pinout.D]
+            self.hw_pin.D = [Gpio(pin_idx, Gpio.OUT, value=0) for pin_idx in self.pinout.D]
         else:
-            self.outputEnabled = False
+            self.output_enabled = False
             # Ensure the bus won't be driven in contention, if we control it
-            if self.hwPin.RWn != None:
-                self.hwPin.RWn.high() # LCD read mode will drive bus
+            if self.hw_pin.RWn != None:
+                self.hw_pin.RWn.high() # LCD read mode will drive bus
             # Reconfigure the data GPIO as inputs
-            self.hwPin.D = [Gpio(pinIdx, Gpio.IN, Gpio.PULL_DOWN) for pinIdx in self.pinout.D]
+            self.hw_pin.D = [Gpio(pin_idx, Gpio.IN, Gpio.PULL_DOWN) for pin_idx in self.pinout.D]
 
-    def doCmd(self, name):
+    def do_cmd(self, name):
         """
         Make it a little easier to send commands by wrapping the lookup of
         opcode and duration
         """
         params = self.COMMANDS.get(name)
-        self.write(params[0], True, params[1])
+        self.write(params.opcode, True, params.duration)
 
     def read(self):
         """
@@ -209,29 +207,29 @@ class hardware_interface:
             raise Exception("Can't read without a RWn pin")
 
         # See if the GPIO outputs are enabled, and disable those if so
-        if self.outputEnabled:
-            self.enGpioOut(False)
+        if self.output_enabled:
+            self.en_gpio_out(False)
 
         # Must do this AFTER setting the GPIO to inputs so we don't drive in contention
-        self.hwPin.RWn.high()
+        self.hw_pin.RWn.high()
 
         # Generate the control signals for a read
-        self.hwPin.RS.low() # If this is high, it reads the data register instead of 'busy' and 'addr'
-        self.hwPin.E.high()
+        self.hw_pin.RS.low() # If this is high, it reads the data register instead of 'busy' and 'addr'
+        self.hw_pin.E.high()
         sleep_us(1) # Enable to data output delay and minimum intra-enable cycle time
 
         # Data is valid by now, read it and drop enable for the next caller to get updated value
         data = 0
-        for elem in self.hwPin.D:
-            data = data | (elem.value() << self.hwPin.D.index(elem))
-        self.hwPin.E.low()
+        for elem in self.hw_pin.D:
+            data = data | (elem.value() << self.hw_pin.D.index(elem))
+        self.hw_pin.E.low()
         sleep_us(1)
 
         # Return 4 or 8 bits depending on mode; do NOT automatically do an 8-bit read
         # in 4-bit mode, because the user does not need that to check the BUSY flag
         return data
 
-    def write(self, u8, isCmd, exeTime):
+    def write(self, char, is_cmd, exe_time):
         """
         Write to HD44780
 
@@ -254,46 +252,46 @@ class hardware_interface:
             val = self.read()
             # TODO: If the busy flag is actually set...which it should never be
             # Must do this BEFORE enabling GPIO outputs so we don't drive in contention
-            self.hwPin.RWn.low()
+            self.hw_pin.RWn.low()
 
         # If the outputs are not enabled, switch modes
-        if not self.outputEnabled:
-            self.enGpioOut(True)
+        if not self.output_enabled:
+            self.en_gpio_out(True)
 
         # R/S = 0 for command or 1 for data
-        if isCmd:
-            self.hwPin.RS.low()
+        if is_cmd:
+            self.hw_pin.RS.low()
         else:
-            self.hwPin.RS.high()
+            self.hw_pin.RS.high()
 
         # E falling edge will latch data, and the datasheet doesn't specify
         # setup time, so we guess it's safe to drive this high now
-        self.hwPin.E.high()
+        self.hw_pin.E.high()
 
         if self.mode == self.Mode.DATA_8:
             # For each Pin bit, see if it should be asserted or not and do so
-            for elem in self.hwPin.D:
-                if (u8 >> self.hwPin.D.index(elem)) & 0x1 == 0x1:
+            for elem in self.hw_pin.D:
+                if (char >> self.hw_pin.D.index(elem)) & 0x1 == 0x1:
                     elem.high()
                 else:
                     elem.low()
 
         elif self.mode == self.Mode.DATA_4:
-            CMD_HI = (u8 >> 4) & 0xF
-            CMD_LO = u8 & 0xF
+            CMD_HI = (char >> 4) & 0xF
+            CMD_LO = char & 0xF
             # Send the upper 4 bits of command
-            for elem in self.hwPin.D:
-                if (CMD_HI >> self.hwPin.D.index(elem)) & 0x1 == 0x1:
+            for elem in self.hw_pin.D:
+                if (CMD_HI >> self.hw_pin.D.index(elem)) & 0x1 == 0x1:
                     elem.high()
                 else:
                     elem.low()
             sleep_us(1) # Min E pulse and addr setup time
-            self.hwPin.E.low()
+            self.hw_pin.E.low()
             sleep_us(1) # Intra-enable pulse time
             # Now send the lower 4 bits of command
-            self.hwPin.E.high()
-            for elem in self.hwPin.D:
-                if (CMD_LO >> self.hwPin.D.index(elem)) & 0x1 == 0x1:
+            self.hw_pin.E.high()
+            for elem in self.hw_pin.D:
+                if (CMD_LO >> self.hw_pin.D.index(elem)) & 0x1 == 0x1:
                     elem.high()
                 else:
                     elem.low()
@@ -303,23 +301,23 @@ class hardware_interface:
 
         # 230 ns minimum enable pulse time
         sleep_us(1)
-        self.hwPin.E.low()
+        self.hw_pin.E.low()
 
         # Exit write mode
         if self.pinout.RWn != None:
-            self.hwPin.RWn.low()
+            self.hw_pin.RWn.low()
 
         # 1 us minimum intra-enable pulse time, plus command execution time
-        sleep_us(1 + exeTime)
+        sleep_us(1 + exe_time)
 
-    def putChar(self, char):
+    def put_char(self, char):
         """
         Write a character to the cursor location
         """
         binVal = ord(char)
         self.write(binVal, False, self.COMMANDS.get("DEFAULT")[0])
 
-    def setLine(self, lineNo):
+    def set_line(self, lineNo):
         """
         Select a display line for an operation
         """
@@ -331,42 +329,42 @@ class hardware_interface:
         # D7 = 1
         # D6:0 = ADDR
         if lineNo == 1:
-            DRAM_ADDR_CMD = self.COMMANDS.get("DDRAM_SET")[0] | self.DRAM_RANGE.L1_START
+            DRAM_ADDR_CMD = self.COMMANDS.get("DDRAM_SET").opcode | self.DramRange.L1_START
         else:
-            DRAM_ADDR_CMD = self.COMMANDS.get("DDRAM_SET")[0] | self.DRAM_RANGE.L2_START
+            DRAM_ADDR_CMD = self.COMMANDS.get("DDRAM_SET").opcode | self.DramRange.L2_START
 
-        self.write(DRAM_ADDR_CMD, True, self.COMMANDS.get("DDRAM_SET")[1])
+        self.write(DRAM_ADDR_CMD, True, self.COMMANDS.get("DDRAM_SET").duration)
 
-    def putLine(self, lineNo, string, typingEn):
+    def put_line(self, lineNo, string, typingEn):
         """
         Write a string to a line on the display
         """
-        self.setLine(lineNo)
-        self.lineVal[lineNo] = string
-        # We can sequentially enter data immediately after a setLine()
+        self.set_line(lineNo)
+        self.line_val[lineNo] = string
+        # We can sequentially enter data immediately after a set_line()
         for char in string:
-            self.putChar(char)
+            self.put_char(char)
             if typingEn:
                 sleep_ms(110) # Seems to be a nice speed for typing effect
 
-    def clearLine(self, lineNo):
+    def clear_lin(self, lineNo):
         """
         Clear an entire line on the display
         """
-        self.putLine(lineNo, " "*16, False)
+        self.put_line(lineNo, " "*16, False)
 
-    def pushLine(self, string, typingEn):
+    def push_line(self, string, typingEn):
         """
         Move line 2 to line 1, then write a new line 2
         """
-        self.clearLine(1)
-        self.lineVal[1] = self.lineVal[2]
-        self.putLine(1, self.lineVal[1], False)
+        self.clear_lin(1)
+        self.line_val[1] = self.line_val[2]
+        self.put_line(1, self.line_val[1], False)
         # We always need a clear line to work with
-        self.clearLine(2)
+        self.clear_lin(2)
         # Re-write line 2 with new value, with effect if requested
-        self.lineVal[2] = string
-        self.putLine(2, self.lineVal[2], typingEn)
+        self.line_val[2] = string
+        self.put_line(2, self.line_val[2], typingEn)
         # Add an end-of-line pause if effects are enabled
         if typingEn:
             sleep_ms(100) # This feels comfortable
